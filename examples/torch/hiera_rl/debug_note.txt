@@ -1,0 +1,7 @@
+train: 500
+
+obtain skill trajectories:
+    obtain samples(itr,
+                   num_paths * max_path_length,
+                   skill_actor,
+                   skill_env)

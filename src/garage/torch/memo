@@ -1,0 +1,91 @@
+1. implement diversity is all you need in pytorch
+2. - re-implement sac (change the reward func)
+
+notes on SAC:
+policy iteration -> soft policy iteration
+the agent seeks to maximize both the environment's expected reward and the policy's entropy
+
+three networks:
+
+    - a state value function V (needed to be modified in diayn)
+        decrease the squared difference between the prediction of our network
+        and the expected prediction of the q function plus the entropy of policy function (measured here by the negative log of the policy function)
+
+    - a soft q function (minimize temporal difference)
+         minimize the squared difference between the prediction of q function and the immediate reward plus the discounted expected value of the next state (comes from the value network)
+
+    - a Gaussian policy function
+        trying to make the distribution of our policy function look more like the distribution of the exponentiation of our q function normalized by anotther func Z
+
+        reparameterization trick： makes the sampling from the policy differentiable
+            - a_t = f(eps_t, s_t) eps = a noise vector sampled from a Gaussian distribution
+
+implementation:
+have two v network: main and target (the target network lags the main network)
+have two q networks to solve the overestimation of q-values
+    - use the minimum of the two to do policy and v function updates
+
+alpha: fixed entropy temperature - how much we weigh the "randomness" of our policy versus the environment reward
+
+diayn:
+
+- use replay buffer -> what is the structure of that part
+    how to pass z as the data
+
+- need to change the parameter when initializing the worker_factory that is passed into local_skill_sampler
+    - which is in runner's setup and makesampler
+
+- need to create a new policy? or rewrite observation_space in sac
+    - ended up creating new policy
+
+- remove all the unused external rewards
+
+- just need to change the reward
+
+- need to add z as one-hot to obs in sac
+
+- how to determine whether it is converged?
+
+- alpha: 0.1 or self-adjustable?
+
+------------------------------------
+# todo:
+check runner choose action: need to add skill?
+
+need to go over the code on how it takes action rn
+
+- after debug, add simple documentation
+
+- need to write sanity check on the pass-in models
+
+- have u turned all skills into one-hot? FIXME
+
+- saves external and internal rewards FIXME
+
+more on research objectives:
+- finish up diayn & write extensible evaluation: allows pearl
+- run diayn with pearl (doesn't seem too hard to write?)
+- go over diayn and pearl again-> maybe try to think of better ways of combining them?
+
+goal this week:
+writes up example of training with diayn -> sac and pearl
+debugs over the code on diayn
+
+options:
+recurrent encoders vs. gaussian
+    + differences:
+        - in policies
+        - in sampling
+
+train inference net and policies as pipeline or not
+    + differences:
+        - one main train loop or two loops
+
+how to freeze the training for the policy
+
+metarl?
+
+skill-worker -
+
+need the proportion of training skill reasoning to decay
+
