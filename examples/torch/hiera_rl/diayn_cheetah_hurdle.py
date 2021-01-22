@@ -17,6 +17,7 @@ from garage.sampler.local_skill_sampler import LocalSkillSampler
 from garage.torch.algos import DIAYN
 from garage.torch.algos.discriminator import MLPDiscriminator
 from garage.torch.policies import TanhGaussianMLPSkillPolicy
+from garage.torch.policies.gaussian_mixture_model import GMMSkillPolicy
 from garage.torch.q_functions import ContinuousMLPSkillQFunction
 
 
@@ -28,29 +29,35 @@ def diayn_cheetah_hurdle(ctxt=None, seed=1):
     env = GarageEnv(normalize(HalfCheetahEnv_Hurdle()))
     skills_num = 6
 
-    policy = TanhGaussianMLPSkillPolicy(
+    # policy = TanhGaussianMLPSkillPolicy(
+    #     env_spec=env.spec,
+    #     skills_num=skills_num,
+    #     hidden_sizes=[300, 300],
+    #     hidden_nonlinearity=nn.ReLU,
+    #     output_nonlinearity=None,
+    #     min_std=np.exp(-20.),
+    #     max_std=np.exp(2.),
+    # )
+
+    policy = GMMSkillPolicy(
         env_spec=env.spec,
+        K=skills_num,
         skills_num=skills_num,
-        hidden_sizes=[256, 256],
-        hidden_nonlinearity=nn.ReLU,
-        output_nonlinearity=None,
-        min_std=np.exp(-20.),
-        max_std=np.exp(2.),
-    )
+        hidden_layer_sizes=[300, 300])
 
     qf1 = ContinuousMLPSkillQFunction(env_spec=env.spec,
                                       skills_num=skills_num,
-                                      hidden_sizes=[256, 256],
+                                      hidden_sizes=[300, 300],
                                       hidden_nonlinearity=F.relu)
 
     qf2 = ContinuousMLPSkillQFunction(env_spec=env.spec,
                                       skills_num=skills_num,
-                                      hidden_sizes=[256, 256],
+                                      hidden_sizes=[300, 300],
                                       hidden_nonlinearity=F.relu)
 
     discriminator = MLPDiscriminator(env_spec=env.spec,
                                      skills_num=skills_num,
-                                     hidden_sizes=[256, 256],
+                                     hidden_sizes=[300, 300],
                                      hidden_nonlinearity=F.relu)
 
     replay_buffer = PathBuffer(capacity_in_transitions=int(1e6))
@@ -62,9 +69,9 @@ def diayn_cheetah_hurdle(ctxt=None, seed=1):
                   qf1=qf1,
                   qf2=qf2,
                   gradient_steps_per_itr=1000,
-                  max_path_length=500,
+                  max_path_length=1000,
                   replay_buffer=replay_buffer,
-                  min_buffer_size=1e4,
+                  min_buffer_size=int(1e6),
                   recorded=False,  # enable the video recording func
                   target_update_tau=5e-3,
                   discount=0.99,

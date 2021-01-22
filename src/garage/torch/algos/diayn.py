@@ -11,8 +11,9 @@ from garage import SkillTrajectoryBatch
 from garage.misc import tensor_utils
 from garage.misc.tensor_utils import discount_cumsum
 from garage.torch.algos import SAC
+from garage.torch.policies.gaussian_mixture_model import GMMSkillPolicy
 
-
+EPS = 1e-6
 class DIAYN(SAC):
     def __init__(self,
                  env_spec,
@@ -31,11 +32,12 @@ class DIAYN(SAC):
                  initial_log_entropy=0.,
                  discount=0.99,
                  buffer_batch_size=64,
-                 min_buffer_size=int(1e4),
+                 min_buffer_size=int(1e7),
                  target_update_tau=5e-3,
                  policy_lr=3e-4,
                  qf_lr=3e-4,
                  reward_scale=1.0,
+                 entrophy_scale=1.0,
                  optimizer=torch.optim.Adam,
                  steps_per_epoch=1,
                  num_evaluation_trajectories=10,
@@ -78,6 +80,7 @@ class DIAYN(SAC):
             self._discriminator.parameters(),
             lr=self._policy_lr)
         # video recording params
+        self._scale_entropy = entrophy_scale
         self._time_per_render = time_per_render
         self._media_save_path = media_save_path
         self._recorded = recorded
@@ -162,14 +165,19 @@ class DIAYN(SAC):
         qf2_loss.backward()
         self._qf2_optimizer.step()
 
-        action_dists = self._policy(states, skills)
-        new_actions_pre_tanh, new_actions = (
-            action_dists.rsample_with_pre_tanh_value())
-        log_pi_new_actions = action_dists.log_prob(
-            value=new_actions, pre_tanh_value=new_actions_pre_tanh)
+        if isinstance(self._policy, GMMSkillPolicy):
+            input = torch.cat([states, skills], 1)
+            actions, policy_params = self._policy(input)
+            policy_loss = self._actor_objective(samples_data, actions, policy_params)
+        else:
+            action_dists = self._policy(states, skills)
+            new_actions_pre_tanh, new_actions = (
+                action_dists.rsample_with_pre_tanh_value())
+            log_pi_new_actions = action_dists.log_prob(
+                value=new_actions, pre_tanh_value=new_actions_pre_tanh)
+            policy_loss = self._actor_objective(samples_data, new_actions,
+                                                log_pi_new_actions)
 
-        policy_loss = self._actor_objective(samples_data, new_actions,
-                                            log_pi_new_actions)
         self._policy_optimizer.zero_grad()
         policy_loss.backward()
 
@@ -184,15 +192,30 @@ class DIAYN(SAC):
 
         return policy_loss, qf1_loss, qf2_loss
 
-    def _actor_objective(self, samples_data, new_actions, log_pi_new_actions):
+    def _actor_objective(self, samples_data, new_actions, params_new_actions):
         states = samples_data['state']
         skills = samples_data['skill_onehot']
-        with torch.no_grad():
-            alpha = self._get_log_alpha(samples_data).exp()
-        min_q_new_actions = torch.min(self._qf1(states, new_actions, skills),
+        if isinstance(self._policy, GMMSkillPolicy):
+            log_p_x_t = params_new_actions['log_p_x_t']
+            reg_loss_t = params_new_actions['reg_loss_t']
+            x_t = params_new_actions['x_t']
+            min_q_new_actions = torch.min(
+                self._qf1(states, new_actions, skills),
+                self._qf2(states, new_actions, skills))
+            corr = torch.sum(torch.log(1.0 - torch.tanh(x_t) ** 2 + EPS))
+            scaled_log_pi = self._scale_entropy * (log_p_x_t - corr)
+            kl_surrogate_loss = torch.mean(log_p_x_t *
+                                           (scaled_log_pi - min_q_new_actions))
+            policy_objective = kl_surrogate_loss + reg_loss_t
+        else:
+            log_pi_new_actions = params_new_actions
+            with torch.no_grad():
+                alpha = self._get_log_alpha(samples_data).exp()
+            min_q_new_actions = torch.min(self._qf1(states, new_actions, skills),
                                       self._qf2(states, new_actions, skills))
-        policy_objective = ((alpha * log_pi_new_actions) -
-                            min_q_new_actions.flatten()).mean()
+            policy_objective = ((alpha * log_pi_new_actions) -
+                                min_q_new_actions.flatten()).mean()
+
         return policy_objective
 
     def _critic_objective(self, samples_data):
@@ -233,11 +256,9 @@ class DIAYN(SAC):
 
         discriminator_pred = self._discriminator(states)
         discriminator_target = samples_data['skill_onehot']
-        # print(discriminator_pred.shape)
-        # print(discriminator_target.shape)
 
-        discriminator_loss = F.mse_loss(discriminator_pred.flatten(),
-                                        discriminator_target.flatten())
+        discriminator_loss = torch.mean(F.cross_entropy(discriminator_pred.flatten(),
+                                        discriminator_target.flatten()))
 
         return discriminator_loss
 
@@ -321,7 +342,8 @@ class DIAYN(SAC):
     @property
     def networks(self):
         return [
-            self._policy, self._discriminator, self._qf1, self._qf2,
+            self._policy if not isinstance(self._policy, GMMSkillPolicy) else
+            self._policy.networks, self._discriminator, self._qf1, self._qf2,
             self._target_qf1, self._target_qf2
         ]
 

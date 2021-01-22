@@ -26,11 +26,11 @@ from garage.torch.policies.context_conditioned_controller_policy import \
 from garage.torch.q_functions import ContinuousMLPQFunction
 
 seed = np.random.randint(0, 1000)
-skills_num = 10
+skills_num = 6
 
 load_dir = os.path.join(os.getcwd(),
-                        'data/local/experiment/diayn_cheetah_hurdle_27')
-itr = 900
+                        'data/local/experiment/diayn_cheetah_hurdle_28')
+itr = 1400
 load_from_file = os.path.join(load_dir, 'itr_{}.pkl'.format(itr))
 file = open(load_from_file, 'rb')
 saved = joblib.load(file)
@@ -54,7 +54,7 @@ param_num_skills_sample = 10
 param_batch_size = 256
 param_embedding_batch_size = 100
 param_embedding_mini_batch_size = 100
-param_max_path_length = 300
+param_max_path_length = 500
 param_latent_size = 5
 param_num_tasks_sample = 5
 param_meta_batch_size = 16
